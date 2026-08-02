@@ -16,6 +16,9 @@ public class GatekeeperDbContext(DbContextOptions<GatekeeperDbContext> options)
     public DbSet<Grant> Grants => Set<Grant>();
     public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
 
+    /// <summary>Append-only history of authorization decisions returned to callers.</summary>
+    public DbSet<DecisionAuditEntry> DecisionAudit => Set<DecisionAuditEntry>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -107,6 +110,16 @@ public class GatekeeperDbContext(DbContextOptions<GatekeeperDbContext> options)
             e.Property(a => a.EntityId).HasMaxLength(256).IsRequired();
             e.Property(a => a.Summary).HasMaxLength(2000).IsRequired();
             e.HasIndex(a => a.Timestamp);
+        });
+
+        builder.Entity<DecisionAuditEntry>(e =>
+        {
+            e.Property(a => a.Subject).HasMaxLength(256).IsRequired();
+            e.Property(a => a.Action).HasMaxLength(200).IsRequired();
+            e.Property(a => a.Resource).HasMaxLength(200).IsRequired();
+            e.Property(a => a.Outcome).HasConversion<string>().HasMaxLength(10);
+            // The common query is "the decisions for this subject on this resource, oldest first".
+            e.HasIndex(a => new { a.Subject, a.Resource, a.Timestamp });
         });
     }
 }
