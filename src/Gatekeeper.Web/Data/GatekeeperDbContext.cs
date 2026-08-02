@@ -15,6 +15,7 @@ public class GatekeeperDbContext(DbContextOptions<GatekeeperDbContext> options)
 
     public DbSet<Grant> Grants => Set<Grant>();
     public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
+    public DbSet<DecisionAuditEntry> DecisionAudit => Set<DecisionAuditEntry>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -107,6 +108,15 @@ public class GatekeeperDbContext(DbContextOptions<GatekeeperDbContext> options)
             e.Property(a => a.EntityId).HasMaxLength(256).IsRequired();
             e.Property(a => a.Summary).HasMaxLength(2000).IsRequired();
             e.HasIndex(a => a.Timestamp);
+        });
+
+        builder.Entity<DecisionAuditEntry>(e =>
+        {
+            e.Property(a => a.Subject).HasMaxLength(256).IsRequired();
+            e.Property(a => a.Action).HasMaxLength(200).IsRequired();
+            e.Property(a => a.Resource).HasMaxLength(200).IsRequired();
+            e.Property(a => a.Outcome).HasConversion<string>().HasMaxLength(10);
+            e.HasIndex(a => new { a.Subject, a.Resource, a.Timestamp });
         });
     }
 }
