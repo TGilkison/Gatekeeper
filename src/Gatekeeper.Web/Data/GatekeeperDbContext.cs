@@ -15,6 +15,7 @@ public class GatekeeperDbContext(DbContextOptions<GatekeeperDbContext> options)
 
     public DbSet<Grant> Grants => Set<Grant>();
     public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
+    public DbSet<DecisionLogEntry> DecisionLog => Set<DecisionLogEntry>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -107,6 +108,18 @@ public class GatekeeperDbContext(DbContextOptions<GatekeeperDbContext> options)
             e.Property(a => a.EntityId).HasMaxLength(256).IsRequired();
             e.Property(a => a.Summary).HasMaxLength(2000).IsRequired();
             e.HasIndex(a => a.Timestamp);
+        });
+
+        builder.Entity<DecisionLogEntry>(e =>
+        {
+            e.Property(d => d.Subject).HasMaxLength(256).IsRequired();
+            e.Property(d => d.Action).HasMaxLength(200).IsRequired();
+            e.Property(d => d.Resource).HasMaxLength(200).IsRequired();
+            e.Property(d => d.Outcome).HasConversion<string>().HasMaxLength(10);
+            // Callers query the decision log by subject and resource; index that path,
+            // and Timestamp for the oldest-first ordering.
+            e.HasIndex(d => new { d.Subject, d.Resource });
+            e.HasIndex(d => d.Timestamp);
         });
     }
 }
