@@ -1,6 +1,7 @@
 using Gatekeeper.Web.Components;
 using Gatekeeper.Web.Components.Account;
 using Gatekeeper.Web.Data;
+using Gatekeeper.Web.Endpoints;
 using Gatekeeper.Web.Services;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -45,6 +46,7 @@ builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSe
 
 // Gatekeeper application services.
 builder.Services.AddScoped<IAuditLogger, AuditLogger>();
+builder.Services.AddScoped<IAccessDecider, AccessDecider>();
 
 var app = builder.Build();
 
@@ -75,6 +77,9 @@ app.MapRazorComponents<App>()
 
 // Add additional endpoints required by the Identity /Account Razor components.
 app.MapAdditionalIdentityEndpoints();
+
+// The decision API other applications call over HTTP.
+app.MapDecisionApi();
 
 // Apply migrations and seed demo data on startup.
 await DbInitializer.InitializeAsync(app.Services);

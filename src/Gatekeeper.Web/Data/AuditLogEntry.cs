@@ -27,4 +27,16 @@ public class AuditLogEntry
 
     /// <summary>Optional tenant scope for the change.</summary>
     public Guid? CustomerId { get; set; }
+
+    // --- Decision records (POST /api/decisions) ---
+    // Populated only for authorization decisions; null for console-change entries.
+
+    /// <summary>The subject a decision was made about, e.g. "user-42".</summary>
+    public string? Subject { get; set; }
+
+    /// <summary>The resource a decision was made about, e.g. "doc-7".</summary>
+    public string? Resource { get; set; }
+
+    /// <summary>The effect actually returned for the decision: "Allow" or "Deny".</summary>
+    public string? Outcome { get; set; }
 }

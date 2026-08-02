@@ -16,6 +16,12 @@ public class GatekeeperDbContext(DbContextOptions<GatekeeperDbContext> options)
     public DbSet<Grant> Grants => Set<Grant>();
     public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
 
+    // Decision-engine policy, owned by the HTTP API (PUT /api/policy). Kept separate
+    // from the tenant-scoped Role/Grant entities the admin console manages.
+    public DbSet<PolicyRole> PolicyRoles => Set<PolicyRole>();
+    public DbSet<PolicyAssignment> PolicyAssignments => Set<PolicyAssignment>();
+    public DbSet<PolicyGrant> PolicyGrants => Set<PolicyGrant>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -106,7 +112,35 @@ public class GatekeeperDbContext(DbContextOptions<GatekeeperDbContext> options)
             e.Property(a => a.EntityType).HasMaxLength(100).IsRequired();
             e.Property(a => a.EntityId).HasMaxLength(256).IsRequired();
             e.Property(a => a.Summary).HasMaxLength(2000).IsRequired();
+            e.Property(a => a.Subject).HasMaxLength(200);
+            e.Property(a => a.Resource).HasMaxLength(200);
+            e.Property(a => a.Outcome).HasMaxLength(10);
             e.HasIndex(a => a.Timestamp);
+            // Decision queries filter by subject + resource (GET /api/audit).
+            e.HasIndex(a => new { a.Subject, a.Resource });
+        });
+
+        builder.Entity<PolicyRole>(e =>
+        {
+            e.Property(r => r.Name).HasMaxLength(200).IsRequired();
+            e.Property(r => r.ParentName).HasMaxLength(200);
+            e.HasIndex(r => r.Name).IsUnique();
+        });
+
+        builder.Entity<PolicyAssignment>(e =>
+        {
+            e.Property(a => a.Subject).HasMaxLength(200).IsRequired();
+            e.Property(a => a.RoleName).HasMaxLength(200).IsRequired();
+            e.HasIndex(a => new { a.Subject, a.RoleName }).IsUnique();
+        });
+
+        builder.Entity<PolicyGrant>(e =>
+        {
+            e.Property(g => g.Subject).HasMaxLength(200).IsRequired();
+            e.Property(g => g.Action).HasMaxLength(200).IsRequired();
+            e.Property(g => g.Resource).HasMaxLength(200).IsRequired();
+            e.Property(g => g.Effect).HasConversion<string>().HasMaxLength(10);
+            e.HasIndex(g => new { g.Subject, g.Action, g.Resource });
         });
     }
 }
