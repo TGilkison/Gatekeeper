@@ -1,3 +1,4 @@
+using Gatekeeper.Web.Authorization;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
@@ -15,6 +16,12 @@ public class GatekeeperDbContext(DbContextOptions<GatekeeperDbContext> options)
 
     public DbSet<Grant> Grants => Set<Grant>();
     public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
+
+    // Self-contained policy driven by the HTTP decision API (see Authorization/PolicyEntities.cs).
+    public DbSet<PolicyRole> PolicyRoles => Set<PolicyRole>();
+    public DbSet<RoleAssignment> RoleAssignments => Set<RoleAssignment>();
+    public DbSet<PolicyGrant> PolicyGrants => Set<PolicyGrant>();
+    public DbSet<DecisionAuditEntry> DecisionAudit => Set<DecisionAuditEntry>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -107,6 +114,41 @@ public class GatekeeperDbContext(DbContextOptions<GatekeeperDbContext> options)
             e.Property(a => a.EntityId).HasMaxLength(256).IsRequired();
             e.Property(a => a.Summary).HasMaxLength(2000).IsRequired();
             e.HasIndex(a => a.Timestamp);
+        });
+
+        // --- Authorization policy (self-contained, driven by the HTTP decision API) ---
+
+        builder.Entity<PolicyRole>(e =>
+        {
+            e.Property(r => r.Name).HasMaxLength(200).IsRequired();
+            e.Property(r => r.ParentName).HasMaxLength(200);
+            e.HasIndex(r => r.Name).IsUnique();
+        });
+
+        builder.Entity<RoleAssignment>(e =>
+        {
+            e.Property(a => a.Subject).HasMaxLength(256).IsRequired();
+            e.Property(a => a.RoleName).HasMaxLength(200).IsRequired();
+            e.HasIndex(a => a.Subject);
+        });
+
+        builder.Entity<PolicyGrant>(e =>
+        {
+            e.Property(g => g.Subject).HasMaxLength(256).IsRequired();
+            e.Property(g => g.Action).HasMaxLength(200).IsRequired();
+            e.Property(g => g.Resource).HasMaxLength(200).IsRequired();
+            e.Property(g => g.Effect).HasConversion<string>().HasMaxLength(10);
+            e.HasIndex(g => g.Subject);
+        });
+
+        builder.Entity<DecisionAuditEntry>(e =>
+        {
+            e.Property(a => a.Subject).HasMaxLength(256).IsRequired();
+            e.Property(a => a.Action).HasMaxLength(200).IsRequired();
+            e.Property(a => a.Resource).HasMaxLength(200).IsRequired();
+            e.Property(a => a.Outcome).HasConversion<string>().HasMaxLength(10);
+            // Query shape for GET /api/audit: filter by subject/resource, ordered by time.
+            e.HasIndex(a => new { a.Subject, a.Resource, a.Timestamp });
         });
     }
 }
