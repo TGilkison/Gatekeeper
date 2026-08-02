@@ -1,3 +1,4 @@
+using Gatekeeper.Web.Authorization;
 using Gatekeeper.Web.Components;
 using Gatekeeper.Web.Components.Account;
 using Gatekeeper.Web.Data;
@@ -46,6 +47,9 @@ builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSe
 // Gatekeeper application services.
 builder.Services.AddScoped<IAuditLogger, AuditLogger>();
 
+// The decision API: the permission check other services call over HTTP.
+builder.Services.AddScoped<IPermissionService, PermissionService>();
+
 var app = builder.Build();
 
 // ADR-0051: say what this is, every time it boots.
@@ -75,6 +79,9 @@ app.MapRazorComponents<App>()
 
 // Add additional endpoints required by the Identity /Account Razor components.
 app.MapAdditionalIdentityEndpoints();
+
+// The decision API (POST /api/decisions, GET /api/audit, PUT /api/policy).
+app.MapAuthorizationApi();
 
 // Apply migrations and seed demo data on startup.
 await DbInitializer.InitializeAsync(app.Services);

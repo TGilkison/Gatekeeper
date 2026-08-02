@@ -16,6 +16,14 @@ public class GatekeeperDbContext(DbContextOptions<GatekeeperDbContext> options)
     public DbSet<Grant> Grants => Set<Grant>();
     public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
 
+    // Decision-API policy and audit. These model the HTTP wire contract directly
+    // (opaque string subjects, role names, no tenant) and are intentionally kept
+    // separate from the console's Identity-coupled Role/Grant/AuditLog tables.
+    public DbSet<PolicyRole> PolicyRoles => Set<PolicyRole>();
+    public DbSet<PolicyAssignment> PolicyAssignments => Set<PolicyAssignment>();
+    public DbSet<PolicyGrant> PolicyGrants => Set<PolicyGrant>();
+    public DbSet<DecisionAuditEntry> DecisionAudit => Set<DecisionAuditEntry>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -106,6 +114,39 @@ public class GatekeeperDbContext(DbContextOptions<GatekeeperDbContext> options)
             e.Property(a => a.EntityType).HasMaxLength(100).IsRequired();
             e.Property(a => a.EntityId).HasMaxLength(256).IsRequired();
             e.Property(a => a.Summary).HasMaxLength(2000).IsRequired();
+            e.HasIndex(a => a.Timestamp);
+        });
+
+        builder.Entity<PolicyRole>(e =>
+        {
+            e.Property(r => r.Name).HasMaxLength(200).IsRequired();
+            e.Property(r => r.ParentName).HasMaxLength(200);
+            e.HasIndex(r => r.Name).IsUnique();
+        });
+
+        builder.Entity<PolicyAssignment>(e =>
+        {
+            e.Property(a => a.Subject).HasMaxLength(200).IsRequired();
+            e.Property(a => a.RoleName).HasMaxLength(200).IsRequired();
+            e.HasIndex(a => a.Subject);
+        });
+
+        builder.Entity<PolicyGrant>(e =>
+        {
+            e.Property(g => g.Subject).HasMaxLength(200).IsRequired();
+            e.Property(g => g.Action).HasMaxLength(200).IsRequired();
+            e.Property(g => g.Resource).HasMaxLength(200).IsRequired();
+            e.Property(g => g.Effect).HasConversion<string>().HasMaxLength(10);
+            e.HasIndex(g => new { g.Subject, g.Action, g.Resource });
+        });
+
+        builder.Entity<DecisionAuditEntry>(e =>
+        {
+            e.Property(a => a.Subject).HasMaxLength(200).IsRequired();
+            e.Property(a => a.Action).HasMaxLength(200).IsRequired();
+            e.Property(a => a.Resource).HasMaxLength(200).IsRequired();
+            e.Property(a => a.Outcome).HasConversion<string>().HasMaxLength(10);
+            e.HasIndex(a => new { a.Subject, a.Resource });
             e.HasIndex(a => a.Timestamp);
         });
     }
