@@ -1,0 +1,247 @@
+@page "/roles"
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inject IDbContextFactory<GatekeeperDbContext> DbFactory
+@inject IAuditLogger Audit
+
+<PageTitle>Gatekeeper · Roles</PageTitle>
+
+<h1>Roles</h1>
+<p class="text-muted">Roles can have a parent role. A role inherits its parent's grants.</p>
+
+<div class="card mb-4">
+    <div class="card-header">@(editing is null ? "Add role" : "Edit role")</div>
+    <div class="card-body">
+        <EditForm Model="form" OnValidSubmit="SaveAsync">
+            <DataAnnotationsValidator />
+            <div class="row g-2 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label">Name</label>
+                    <InputText class="form-control" @bind-Value="form.Name" />
+                    <ValidationMessage For="() => form.Name" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Customer</label>
+                    <InputSelect class="form-select" @bind-Value="form.CustomerId" @bind-Value:after="OnCustomerChanged" disabled="@(editing is not null)">
+                        <option value="">— select —</option>
+                        @foreach (var c in customers)
+                        {
+                            <option value="@c.Id">@c.Name</option>
+                        }
+                    </InputSelect>
+                    <ValidationMessage For="() => form.CustomerId" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Parent role</label>
+                    <InputSelect class="form-select" @bind-Value="form.ParentRoleId">
+                        <option value="">— none —</option>
+                        @foreach (var r in ParentOptions())
+                        {
+                            <option value="@r.Id">@r.Name</option>
+                        }
+                    </InputSelect>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Description</label>
+                    <InputText class="form-control" @bind-Value="form.Description" />
+                </div>
+            </div>
+            <div class="mt-3 d-flex gap-2">
+                <button type="submit" class="btn btn-primary">@(editing is null ? "Add" : "Save")</button>
+                @if (editing is not null)
+                {
+                    <button type="button" class="btn btn-outline-secondary" @onclick="CancelEdit">Cancel</button>
+                }
+            </div>
+        </EditForm>
+        @if (message is not null)
+        {
+            <div class="alert @(isError ? "alert-danger" : "alert-info") mt-3 mb-0 py-2">@message</div>
+        }
+    </div>
+</div>
+
+@if (roles is null)
+{
+    <p><em>Loading…</em></p>
+}
+else if (roles.Count == 0)
+{
+    <p>No roles yet.</p>
+}
+else
+{
+    <table class="table table-hover align-middle">
+        <thead>
+            <tr><th>Name</th><th>Customer</th><th>Parent</th><th>Grants</th><th>Description</th><th class="text-end">Actions</th></tr>
+        </thead>
+        <tbody>
+            @foreach (var r in roles)
+            {
+                <tr>
+                    <td>@r.Name</td>
+                    <td>@r.Customer?.Name</td>
+                    <td>@(r.Parent?.Name ?? "—")</td>
+                    <td>@r.Grants.Count</td>
+                    <td class="text-muted">@r.Description</td>
+                    <td class="text-end">
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => BeginEdit(r)">Edit</button>
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(r)">Delete</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<Role>? roles;
+    private List<Customer> customers = new();
+    private Role? editing;
+    private string? message;
+    private bool isError;
+
+    private RoleForm form = new();
+
+    public class RoleForm
+    {
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.StringLength(200)]
+        public string Name { get; set; } = string.Empty;
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Pick a customer.")]
+        public Guid? CustomerId { get; set; }
+        public Guid? ParentRoleId { get; set; }
+        public string? Description { get; set; }
+    }
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        customers = await db.Customers.OrderBy(c => c.Name).ToListAsync();
+        roles = await db.Roles
+            .Include(r => r.Customer)
+            .Include(r => r.Parent)
+            .Include(r => r.Grants)
+            .OrderBy(r => r.Customer!.Name).ThenBy(r => r.Name)
+            .ToListAsync();
+    }
+
+    // Parent options: other roles in the same customer (never the role being edited).
+    private IEnumerable<Role> ParentOptions()
+    {
+        if (roles is null || form.CustomerId is null) return Enumerable.Empty<Role>();
+        return roles.Where(r => r.CustomerId == form.CustomerId && r.Id != editing?.Id);
+    }
+
+    private void OnCustomerChanged()
+    {
+        // Parent must belong to the selected customer; clear if it no longer fits.
+        if (form.ParentRoleId is not null && ParentOptions().All(r => r.Id != form.ParentRoleId))
+        {
+            form.ParentRoleId = null;
+        }
+    }
+
+    private void BeginEdit(Role r)
+    {
+        editing = r;
+        form = new RoleForm
+        {
+            Name = r.Name,
+            CustomerId = r.CustomerId,
+            ParentRoleId = r.ParentRoleId,
+            Description = r.Description,
+        };
+        message = null;
+        isError = false;
+    }
+
+    private void CancelEdit()
+    {
+        editing = null;
+        form = new RoleForm();
+    }
+
+    private async Task SaveAsync()
+    {
+        isError = false;
+        message = null;
+
+        if (form.ParentRoleId == editing?.Id && editing is not null)
+        {
+            isError = true; message = "A role cannot be its own parent."; return;
+        }
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        if (editing is null)
+        {
+            var r = new Role
+            {
+                Name = form.Name.Trim(),
+                CustomerId = form.CustomerId!.Value,
+                ParentRoleId = form.ParentRoleId,
+                Description = form.Description?.Trim(),
+            };
+            db.Roles.Add(r);
+            await db.SaveChangesAsync();
+            await Audit.LogAsync("Created", "Role", r.Id.ToString(), $"Created role '{r.Name}'", r.CustomerId);
+            message = $"Added role '{r.Name}'.";
+        }
+        else
+        {
+            if (await WouldCycleAsync(db, editing.Id, form.ParentRoleId))
+            {
+                isError = true; message = "That parent would create a cycle."; return;
+            }
+            var r = await db.Roles.FindAsync(editing.Id);
+            if (r is not null)
+            {
+                r.Name = form.Name.Trim();
+                r.ParentRoleId = form.ParentRoleId;
+                r.Description = form.Description?.Trim();
+                await db.SaveChangesAsync();
+                await Audit.LogAsync("Updated", "Role", r.Id.ToString(), $"Updated role '{r.Name}'", r.CustomerId);
+                message = $"Saved role '{r.Name}'.";
+            }
+            editing = null;
+        }
+        form = new RoleForm();
+        await LoadAsync();
+    }
+
+    private static async Task<bool> WouldCycleAsync(GatekeeperDbContext db, Guid roleId, Guid? newParentId)
+    {
+        var cursor = newParentId;
+        while (cursor is not null)
+        {
+            if (cursor == roleId) return true;
+            cursor = (await db.Roles.FindAsync(cursor))?.ParentRoleId;
+        }
+        return false;
+    }
+
+    private async Task DeleteAsync(Role r)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var existing = await db.Roles.FindAsync(r.Id);
+        if (existing is not null)
+        {
+            if (await db.Roles.AnyAsync(c => c.ParentRoleId == existing.Id))
+            {
+                isError = true;
+                message = $"Can't delete '{existing.Name}': other roles inherit from it. Reparent them first.";
+                return;
+            }
+            db.Roles.Remove(existing);
+            await db.SaveChangesAsync();
+            await Audit.LogAsync("Deleted", "Role", r.Id.ToString(), $"Deleted role '{existing.Name}'", r.CustomerId);
+            message = $"Deleted role '{existing.Name}'.";
+            isError = false;
+        }
+        await LoadAsync();
+    }
+}

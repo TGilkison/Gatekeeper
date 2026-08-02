@@ -1,5 +1,21 @@
 # Gatekeeper
 
+> ## Do not deploy this. It is a lab target.
+>
+> Gatekeeper contains **deliberate, documented defects at every tag**, including
+> silent authorization and audit-integrity failures. An authorization service that
+> lies in its own audit log looks perfectly healthy from the outside, which is the
+> whole point of chapter 1 and exactly why it must never run anywhere real.
+>
+> Run it locally. Never on a public server, a shared network, or anything holding
+> real data or real users. There is no supported production configuration.
+> See [SECURITY.md](SECURITY.md) and [defects.json](defects.json).
+>
+> **The gates are for lifting; the application is not.** The MIT license means
+> take the pre-commit hook, the CI lanes, the analyzer config, the fitness tests
+> and the branch-protection ruleset into your own projects. That is the
+> deliverable. Gatekeeper is the patient.
+
 > An access-control SaaS built in public, one quality gate at a time.
 
 Gatekeeper is the running example and companion code for the book

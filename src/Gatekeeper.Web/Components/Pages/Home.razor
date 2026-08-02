@@ -1,7 +1,69 @@
-﻿@page "/"
+@page "/"
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inject IDbContextFactory<GatekeeperDbContext> DbFactory
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Gatekeeper · Dashboard</PageTitle>
 
-<h1>Hello, world!</h1>
+<h1>Dashboard</h1>
+<p class="text-muted">Access-control administration console.</p>
 
-Welcome to your new app.
+@if (loading)
+{
+    <p><em>Loading…</em></p>
+}
+else
+{
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md">
+            <div class="card text-center"><div class="card-body">
+                <div class="display-6">@customers</div><div class="text-muted">Customers</div>
+            </div></div>
+        </div>
+        <div class="col-6 col-md">
+            <div class="card text-center"><div class="card-body">
+                <div class="display-6">@users</div><div class="text-muted">Users</div>
+            </div></div>
+        </div>
+        <div class="col-6 col-md">
+            <div class="card text-center"><div class="card-body">
+                <div class="display-6">@roles</div><div class="text-muted">Roles</div>
+            </div></div>
+        </div>
+        <div class="col-6 col-md">
+            <div class="card text-center"><div class="card-body">
+                <div class="display-6">@grants</div><div class="text-muted">Grants</div>
+            </div></div>
+        </div>
+        <div class="col-6 col-md">
+            <div class="card text-center"><div class="card-body">
+                <div class="display-6">@audit</div><div class="text-muted">Audit entries</div>
+            </div></div>
+        </div>
+    </div>
+
+    <div class="d-flex gap-2 flex-wrap">
+        <a class="btn btn-outline-primary" href="customers">Manage customers</a>
+        <a class="btn btn-outline-primary" href="users">Manage users</a>
+        <a class="btn btn-outline-primary" href="roles">Manage roles</a>
+        <a class="btn btn-outline-primary" href="grants">Manage grants</a>
+        <a class="btn btn-outline-secondary" href="audit">View audit log</a>
+    </div>
+}
+
+@code {
+    private bool loading = true;
+    private int customers, users, roles, grants, audit;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        customers = await db.Customers.CountAsync();
+        users = await db.Users.CountAsync();
+        roles = await db.Roles.CountAsync();
+        grants = await db.Grants.CountAsync();
+        audit = await db.AuditLog.CountAsync();
+        loading = false;
+    }
+}

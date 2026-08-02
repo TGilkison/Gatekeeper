@@ -1,0 +1,165 @@
+@page "/customers"
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inject IDbContextFactory<GatekeeperDbContext> DbFactory
+@inject IAuditLogger Audit
+
+<PageTitle>Gatekeeper · Customers</PageTitle>
+
+<h1>Customers</h1>
+<p class="text-muted">Tenants. Each customer has a plan tier and owns its own users, roles and grants.</p>
+
+<div class="card mb-4">
+    <div class="card-header">@(editing is null ? "Add customer" : "Edit customer")</div>
+    <div class="card-body">
+        <EditForm Model="form" OnValidSubmit="SaveAsync">
+            <DataAnnotationsValidator />
+            <div class="row g-2 align-items-end">
+                <div class="col-md-5">
+                    <label class="form-label">Name</label>
+                    <InputText class="form-control" @bind-Value="form.Name" />
+                    <ValidationMessage For="() => form.Name" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Plan tier</label>
+                    <InputSelect class="form-select" @bind-Value="form.PlanTier">
+                        @foreach (var t in Enum.GetValues<PlanTier>())
+                        {
+                            <option value="@t">@t</option>
+                        }
+                    </InputSelect>
+                </div>
+                <div class="col-md-3 d-flex gap-2">
+                    <button type="submit" class="btn btn-primary">@(editing is null ? "Add" : "Save")</button>
+                    @if (editing is not null)
+                    {
+                        <button type="button" class="btn btn-outline-secondary" @onclick="CancelEdit">Cancel</button>
+                    }
+                </div>
+            </div>
+        </EditForm>
+        @if (message is not null)
+        {
+            <div class="alert alert-info mt-3 mb-0 py-2">@message</div>
+        }
+    </div>
+</div>
+
+@if (customers is null)
+{
+    <p><em>Loading…</em></p>
+}
+else if (customers.Count == 0)
+{
+    <p>No customers yet.</p>
+}
+else
+{
+    <table class="table table-hover align-middle">
+        <thead>
+            <tr><th>Name</th><th>Plan</th><th>Users</th><th>Created</th><th class="text-end">Actions</th></tr>
+        </thead>
+        <tbody>
+            @foreach (var c in customers)
+            {
+                <tr>
+                    <td>@c.Name</td>
+                    <td><span class="badge @TierBadge(c.PlanTier)">@c.PlanTier</span></td>
+                    <td>@c.Users.Count</td>
+                    <td>@c.CreatedAt.LocalDateTime.ToString("g")</td>
+                    <td class="text-end">
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => BeginEdit(c)">Edit</button>
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(c)">Delete</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<Customer>? customers;
+    private Customer? editing;
+    private string? message;
+
+    private CustomerForm form = new();
+
+    public class CustomerForm
+    {
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.StringLength(200)]
+        public string Name { get; set; } = string.Empty;
+        public PlanTier PlanTier { get; set; } = PlanTier.Free;
+    }
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        customers = await db.Customers.Include(c => c.Users).OrderBy(c => c.Name).ToListAsync();
+    }
+
+    private void BeginEdit(Customer c)
+    {
+        editing = c;
+        form = new CustomerForm { Name = c.Name, PlanTier = c.PlanTier };
+        message = null;
+    }
+
+    private void CancelEdit()
+    {
+        editing = null;
+        form = new CustomerForm();
+    }
+
+    private async Task SaveAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        if (editing is null)
+        {
+            var c = new Customer { Name = form.Name.Trim(), PlanTier = form.PlanTier };
+            db.Customers.Add(c);
+            await db.SaveChangesAsync();
+            await Audit.LogAsync("Created", "Customer", c.Id.ToString(), $"Created customer '{c.Name}' ({c.PlanTier})", c.Id);
+            message = $"Added customer '{c.Name}'.";
+        }
+        else
+        {
+            var c = await db.Customers.FindAsync(editing.Id);
+            if (c is not null)
+            {
+                c.Name = form.Name.Trim();
+                c.PlanTier = form.PlanTier;
+                await db.SaveChangesAsync();
+                await Audit.LogAsync("Updated", "Customer", c.Id.ToString(), $"Updated customer '{c.Name}' ({c.PlanTier})", c.Id);
+                message = $"Saved customer '{c.Name}'.";
+            }
+            editing = null;
+        }
+        form = new CustomerForm();
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(Customer c)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var existing = await db.Customers.FindAsync(c.Id);
+        if (existing is not null)
+        {
+            db.Customers.Remove(existing);
+            await db.SaveChangesAsync();
+            await Audit.LogAsync("Deleted", "Customer", c.Id.ToString(), $"Deleted customer '{existing.Name}'", c.Id);
+            message = $"Deleted customer '{existing.Name}'.";
+        }
+        await LoadAsync();
+    }
+
+    private static string TierBadge(PlanTier t) => t switch
+    {
+        PlanTier.Enterprise => "bg-dark",
+        PlanTier.Pro => "bg-primary",
+        _ => "bg-secondary",
+    };
+}

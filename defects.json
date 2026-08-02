@@ -1,0 +1,49 @@
+{
+  "$comment": "Machine-readable defect manifest (ADR-0051). The startup banner reads this and names what is live at the running tag. Prose registry: apps/docs/mvp/defect-registry.md in the book repo.",
+  "schemaVersion": 1,
+  "tag": "v0-frozen",
+  "appliesFrom": "v0-frozen",
+  "summary": "Ungated by construction. No permission check exists yet, so the headline authorization defects have nothing to live in.",
+  "defects": [
+    {
+      "id": "V0-UNGATED",
+      "severity": "informational",
+      "provenance": "emergent",
+      "title": "No gates of any kind",
+      "detail": "No tests, no CI, no analyzers, no architecture rules, no rails. Nothing in the repository is capable of catching a defect. This is the state chapters 1 through 4 describe, and it is deliberate."
+    },
+    {
+      "id": "V0-NO-DECISION-PATH",
+      "severity": "informational",
+      "provenance": "emergent",
+      "title": "Stores policy, decides nothing",
+      "detail": "Users, roles with a parent role, grants, an audit log and a Blazor console exist. Nothing answers whether a subject may take an action on a resource. The permission check is the harvest task, built from this tag."
+    },
+    {
+      "id": "V0-MUTABLE-AUDIT",
+      "severity": "high",
+      "provenance": "emergent",
+      "title": "Audit entries are freely mutable",
+      "detail": "AuditLogEntry exposes public setters on every property and nothing prevents an update or a delete. An append-only audit log is the rule chapter 2 turns into a gate; at this tag the rule exists only in prose."
+    },
+    {
+      "id": "V0-NO-CYCLE-DETECTION",
+      "severity": "medium",
+      "provenance": "emergent",
+      "title": "Role graph has no cycle detection or depth cap",
+      "detail": "A role may name a parent role with no check for a cycle and no bound on inheritance depth. Any future traversal of the role graph can loop forever."
+    }
+  ],
+  "notSeededHere": [
+    {
+      "id": "H1a",
+      "title": "Precedence collapse",
+      "arrivesWith": "the harvest task, not this tag"
+    },
+    {
+      "id": "H1b",
+      "title": "Audit fidelity, denied recorded as allowed",
+      "arrivesWith": "the harvest task, not this tag"
+    }
+  ]
+}

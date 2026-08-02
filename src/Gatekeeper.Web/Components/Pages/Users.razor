@@ -1,0 +1,244 @@
+@page "/users"
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inject IDbContextFactory<GatekeeperDbContext> DbFactory
+@inject UserManager<ApplicationUser> UserManager
+@inject IAuditLogger Audit
+
+<PageTitle>Gatekeeper · Users</PageTitle>
+
+<h1>Users</h1>
+<p class="text-muted">Console/login accounts, scoped to a customer. Assign roles or attach grants directly (see Grants).</p>
+
+<div class="card mb-4">
+    <div class="card-header">Add user</div>
+    <div class="card-body">
+        <EditForm Model="form" OnValidSubmit="CreateAsync">
+            <DataAnnotationsValidator />
+            <div class="row g-2 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label">Email</label>
+                    <InputText class="form-control" @bind-Value="form.Email" />
+                    <ValidationMessage For="() => form.Email" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Display name</label>
+                    <InputText class="form-control" @bind-Value="form.DisplayName" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Customer</label>
+                    <InputSelect class="form-select" @bind-Value="form.CustomerId">
+                        <option value="">— none —</option>
+                        @foreach (var c in customers)
+                        {
+                            <option value="@c.Id">@c.Name</option>
+                        }
+                    </InputSelect>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Password</label>
+                    <InputText type="password" class="form-control" @bind-Value="form.Password" />
+                    <ValidationMessage For="() => form.Password" />
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary mt-3">Add user</button>
+        </EditForm>
+        @if (message is not null)
+        {
+            <div class="alert @(isError ? "alert-danger" : "alert-info") mt-3 mb-0 py-2">@message</div>
+        }
+    </div>
+</div>
+
+@if (users is null)
+{
+    <p><em>Loading…</em></p>
+}
+else if (users.Count == 0)
+{
+    <p>No users yet.</p>
+}
+else
+{
+    <table class="table table-hover align-middle">
+        <thead>
+            <tr><th>Email</th><th>Display name</th><th>Customer</th><th>Roles</th><th class="text-end">Actions</th></tr>
+        </thead>
+        <tbody>
+            @foreach (var u in users)
+            {
+                <tr>
+                    <td>@u.Email</td>
+                    <td>@u.DisplayName</td>
+                    <td>@(u.Customer?.Name ?? "—")</td>
+                    <td>
+                        @if (u.UserRoles.Count == 0)
+                        {
+                            <span class="text-muted">none</span>
+                        }
+                        else
+                        {
+                            @foreach (var ur in u.UserRoles)
+                            {
+                                <span class="badge bg-info text-dark me-1">@ur.Role?.Name</span>
+                            }
+                        }
+                    </td>
+                    <td class="text-end">
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => BeginRoles(u)">Roles</button>
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(u)">Delete</button>
+                    </td>
+                </tr>
+                @if (rolesFor?.Id == u.Id)
+                {
+                    <tr class="table-light">
+                        <td colspan="5">
+                            <strong>Assign roles for @u.Email</strong>
+                            @if (assignableRoles.Count == 0)
+                            {
+                                <p class="mb-0 text-muted">This user's customer has no roles. Create some on the Roles page.</p>
+                            }
+                            else
+                            {
+                                <div class="row mt-2">
+                                    @foreach (var r in assignableRoles)
+                                    {
+                                        <div class="col-md-4">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox"
+                                                       checked="@selectedRoleIds.Contains(r.Id)"
+                                                       @onchange="e => ToggleRole(r.Id, (bool)e.Value!)" />
+                                                <label class="form-check-label">@r.Name</label>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                                <button class="btn btn-sm btn-primary mt-2" @onclick="SaveRolesAsync">Save roles</button>
+                                <button class="btn btn-sm btn-outline-secondary mt-2" @onclick="() => rolesFor = null">Close</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<ApplicationUser>? users;
+    private List<Customer> customers = new();
+    private string? message;
+    private bool isError;
+
+    private ApplicationUser? rolesFor;
+    private List<Role> assignableRoles = new();
+    private HashSet<Guid> selectedRoleIds = new();
+
+    private UserForm form = new();
+
+    public class UserForm
+    {
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.EmailAddress]
+        public string Email { get; set; } = string.Empty;
+        public string? DisplayName { get; set; }
+        public Guid? CustomerId { get; set; }
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.StringLength(100, MinimumLength = 6)]
+        public string Password { get; set; } = string.Empty;
+    }
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        customers = await db.Customers.OrderBy(c => c.Name).ToListAsync();
+        users = await db.Users
+            .Include(u => u.Customer)
+            .Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
+            .OrderBy(u => u.Email)
+            .ToListAsync();
+    }
+
+    private async Task CreateAsync()
+    {
+        message = null;
+        isError = false;
+
+        var user = new ApplicationUser
+        {
+            UserName = form.Email.Trim(),
+            Email = form.Email.Trim(),
+            DisplayName = string.IsNullOrWhiteSpace(form.DisplayName) ? null : form.DisplayName.Trim(),
+            CustomerId = form.CustomerId,
+            EmailConfirmed = true,
+        };
+
+        var result = await UserManager.CreateAsync(user, form.Password);
+        if (result.Succeeded)
+        {
+            await Audit.LogAsync("Created", "User", user.Id, $"Created user '{user.Email}'", user.CustomerId);
+            message = $"Created user '{user.Email}'.";
+            form = new UserForm();
+            await LoadAsync();
+        }
+        else
+        {
+            isError = true;
+            message = string.Join(" ", result.Errors.Select(e => e.Description));
+        }
+    }
+
+    private async Task DeleteAsync(ApplicationUser u)
+    {
+        var user = await UserManager.FindByIdAsync(u.Id);
+        if (user is not null)
+        {
+            await UserManager.DeleteAsync(user);
+            await Audit.LogAsync("Deleted", "User", u.Id, $"Deleted user '{u.Email}'", u.CustomerId);
+            message = $"Deleted user '{u.Email}'.";
+            isError = false;
+        }
+        if (rolesFor?.Id == u.Id) rolesFor = null;
+        await LoadAsync();
+    }
+
+    private async Task BeginRoles(ApplicationUser u)
+    {
+        rolesFor = u;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        assignableRoles = await db.Roles
+            .Where(r => r.CustomerId == u.CustomerId)
+            .OrderBy(r => r.Name)
+            .ToListAsync();
+        selectedRoleIds = u.UserRoles.Select(ur => ur.RoleId).ToHashSet();
+    }
+
+    private void ToggleRole(Guid roleId, bool on)
+    {
+        if (on) selectedRoleIds.Add(roleId);
+        else selectedRoleIds.Remove(roleId);
+    }
+
+    private async Task SaveRolesAsync()
+    {
+        if (rolesFor is null) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var current = await db.UserRoles.Where(ur => ur.UserId == rolesFor.Id).ToListAsync();
+        db.UserRoles.RemoveRange(current.Where(ur => !selectedRoleIds.Contains(ur.RoleId)));
+        foreach (var roleId in selectedRoleIds.Where(id => current.All(ur => ur.RoleId != id)))
+        {
+            db.UserRoles.Add(new UserRole { UserId = rolesFor.Id, RoleId = roleId });
+        }
+        await db.SaveChangesAsync();
+        await Audit.LogAsync("Updated", "User", rolesFor.Id, $"Updated role assignments for '{rolesFor.Email}'", rolesFor.CustomerId);
+        message = $"Saved roles for '{rolesFor.Email}'.";
+        isError = false;
+        rolesFor = null;
+        await LoadAsync();
+    }
+}

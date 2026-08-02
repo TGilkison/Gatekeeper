@@ -1,0 +1,253 @@
+@page "/grants"
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inject IDbContextFactory<GatekeeperDbContext> DbFactory
+@inject IAuditLogger Audit
+
+<PageTitle>Gatekeeper · Grants</PageTitle>
+
+<h1>Grants</h1>
+<p class="text-muted">An allow or deny of a permission on a resource, attached to either a user or a role.</p>
+
+<div class="card mb-4">
+    <div class="card-header">Add grant</div>
+    <div class="card-body">
+        <EditForm Model="form" OnValidSubmit="AddAsync">
+            <DataAnnotationsValidator />
+            <div class="row g-2 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label">Customer</label>
+                    <InputSelect class="form-select" @bind-Value="form.CustomerId" @bind-Value:after="OnCustomerChanged">
+                        <option value="">— select —</option>
+                        @foreach (var c in customers)
+                        {
+                            <option value="@c.Id">@c.Name</option>
+                        }
+                    </InputSelect>
+                    <ValidationMessage For="() => form.CustomerId" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Effect</label>
+                    <InputSelect class="form-select" @bind-Value="form.Effect">
+                        @foreach (var e in Enum.GetValues<GrantEffect>())
+                        {
+                            <option value="@e">@e</option>
+                        }
+                    </InputSelect>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Permission</label>
+                    <InputText class="form-control" placeholder="e.g. documents.read" @bind-Value="form.Permission" />
+                    <ValidationMessage For="() => form.Permission" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Resource</label>
+                    <InputText class="form-control" placeholder="* or project:42" @bind-Value="form.Resource" />
+                    <ValidationMessage For="() => form.Resource" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Subject type</label>
+                    <InputSelect class="form-select" @bind-Value="form.SubjectType" @bind-Value:after="OnSubjectTypeChanged">
+                        <option value="@GrantSubjectType.Role">Role</option>
+                        <option value="@GrantSubjectType.User">User</option>
+                    </InputSelect>
+                </div>
+            </div>
+            <div class="row g-2 align-items-end mt-1">
+                <div class="col-md-4">
+                    <label class="form-label">Subject</label>
+                    @if (form.SubjectType == GrantSubjectType.Role)
+                    {
+                        <InputSelect class="form-select" @bind-Value="form.RoleId">
+                            <option value="">— select role —</option>
+                            @foreach (var r in scopedRoles)
+                            {
+                                <option value="@r.Id">@r.Name</option>
+                            }
+                        </InputSelect>
+                    }
+                    else
+                    {
+                        <InputSelect class="form-select" @bind-Value="form.UserId">
+                            <option value="">— select user —</option>
+                            @foreach (var u in scopedUsers)
+                            {
+                                <option value="@u.Id">@u.Email</option>
+                            }
+                        </InputSelect>
+                    }
+                </div>
+                <div class="col-md-3">
+                    <button type="submit" class="btn btn-primary">Add grant</button>
+                </div>
+            </div>
+        </EditForm>
+        @if (message is not null)
+        {
+            <div class="alert @(isError ? "alert-danger" : "alert-info") mt-3 mb-0 py-2">@message</div>
+        }
+    </div>
+</div>
+
+@if (grants is null)
+{
+    <p><em>Loading…</em></p>
+}
+else if (grants.Count == 0)
+{
+    <p>No grants yet.</p>
+}
+else
+{
+    <table class="table table-hover align-middle">
+        <thead>
+            <tr><th>Effect</th><th>Permission</th><th>Resource</th><th>Subject</th><th>Customer</th><th class="text-end">Actions</th></tr>
+        </thead>
+        <tbody>
+            @foreach (var g in grants)
+            {
+                <tr>
+                    <td><span class="badge @(g.Effect == GrantEffect.Allow ? "bg-success" : "bg-danger")">@g.Effect</span></td>
+                    <td><code>@g.Permission</code></td>
+                    <td><code>@g.Resource</code></td>
+                    <td>
+                        @if (g.RoleId is not null)
+                        {
+                            <span class="badge bg-info text-dark">role</span> @g.Role?.Name
+                        }
+                        else
+                        {
+                            <span class="badge bg-warning text-dark">user</span> @g.User?.Email
+                        }
+                    </td>
+                    <td>@g.Customer?.Name</td>
+                    <td class="text-end">
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(g)">Delete</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<Grant>? grants;
+    private List<Customer> customers = new();
+    private List<Role> scopedRoles = new();
+    private List<ApplicationUser> scopedUsers = new();
+    private string? message;
+    private bool isError;
+
+    private GrantForm form = new();
+
+    public class GrantForm
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Pick a customer.")]
+        public Guid? CustomerId { get; set; }
+        public GrantEffect Effect { get; set; } = GrantEffect.Allow;
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.StringLength(200)]
+        public string Permission { get; set; } = string.Empty;
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.StringLength(200)]
+        public string Resource { get; set; } = "*";
+        public GrantSubjectType SubjectType { get; set; } = GrantSubjectType.Role;
+        public Guid? RoleId { get; set; }
+        public string? UserId { get; set; }
+    }
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        customers = await db.Customers.OrderBy(c => c.Name).ToListAsync();
+        grants = await db.Grants
+            .Include(g => g.Customer)
+            .Include(g => g.Role)
+            .Include(g => g.User)
+            .OrderByDescending(g => g.CreatedAt)
+            .ToListAsync();
+        await RefreshSubjectsAsync(db);
+    }
+
+    private async Task OnCustomerChanged()
+    {
+        form.RoleId = null;
+        form.UserId = null;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        await RefreshSubjectsAsync(db);
+    }
+
+    private void OnSubjectTypeChanged()
+    {
+        form.RoleId = null;
+        form.UserId = null;
+    }
+
+    private async Task RefreshSubjectsAsync(GatekeeperDbContext db)
+    {
+        if (form.CustomerId is null)
+        {
+            scopedRoles = new();
+            scopedUsers = new();
+            return;
+        }
+        scopedRoles = await db.Roles.Where(r => r.CustomerId == form.CustomerId).OrderBy(r => r.Name).ToListAsync();
+        scopedUsers = await db.Users.Where(u => u.CustomerId == form.CustomerId).OrderBy(u => u.Email).ToListAsync();
+    }
+
+    private async Task AddAsync()
+    {
+        isError = false;
+        message = null;
+
+        if (form.SubjectType == GrantSubjectType.Role && form.RoleId is null)
+        {
+            isError = true; message = "Pick a role for the grant."; return;
+        }
+        if (form.SubjectType == GrantSubjectType.User && string.IsNullOrEmpty(form.UserId))
+        {
+            isError = true; message = "Pick a user for the grant."; return;
+        }
+
+        var grant = new Grant
+        {
+            CustomerId = form.CustomerId!.Value,
+            Effect = form.Effect,
+            Permission = form.Permission.Trim(),
+            Resource = string.IsNullOrWhiteSpace(form.Resource) ? "*" : form.Resource.Trim(),
+            RoleId = form.SubjectType == GrantSubjectType.Role ? form.RoleId : null,
+            UserId = form.SubjectType == GrantSubjectType.User ? form.UserId : null,
+        };
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.Grants.Add(grant);
+        await db.SaveChangesAsync();
+        await Audit.LogAsync("Created", "Grant", grant.Id.ToString(),
+            $"{grant.Effect} '{grant.Permission}' on '{grant.Resource}' for {form.SubjectType.ToString().ToLower()}", grant.CustomerId);
+
+        message = "Grant added.";
+        var keepCustomer = form.CustomerId;
+        var keepType = form.SubjectType;
+        form = new GrantForm { CustomerId = keepCustomer, SubjectType = keepType };
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(Grant g)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var existing = await db.Grants.FindAsync(g.Id);
+        if (existing is not null)
+        {
+            db.Grants.Remove(existing);
+            await db.SaveChangesAsync();
+            await Audit.LogAsync("Deleted", "Grant", g.Id.ToString(),
+                $"Removed {existing.Effect} '{existing.Permission}' on '{existing.Resource}'", existing.CustomerId);
+            message = "Grant deleted.";
+            isError = false;
+        }
+        await LoadAsync();
+    }
+}
