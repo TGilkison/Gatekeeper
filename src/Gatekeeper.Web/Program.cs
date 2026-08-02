@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+using Gatekeeper.Web.Api;
 using Gatekeeper.Web.Components;
 using Gatekeeper.Web.Components.Account;
 using Gatekeeper.Web.Data;
@@ -45,6 +47,11 @@ builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSe
 
 // Gatekeeper application services.
 builder.Services.AddScoped<IAuditLogger, AuditLogger>();
+builder.Services.AddScoped<IDecisionService, DecisionService>();
+
+// The HTTP API serializes GrantEffect as its name ("Allow"/"Deny") to match the wire contract.
+builder.Services.ConfigureHttpJsonOptions(options =>
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
 var app = builder.Build();
 
@@ -75,6 +82,9 @@ app.MapRazorComponents<App>()
 
 // Add additional endpoints required by the Identity /Account Razor components.
 app.MapAdditionalIdentityEndpoints();
+
+// The HTTP decision/audit/policy API that other apps call.
+app.MapDecisionApi();
 
 // Apply migrations and seed demo data on startup.
 await DbInitializer.InitializeAsync(app.Services);
