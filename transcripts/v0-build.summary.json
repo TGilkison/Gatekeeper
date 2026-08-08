@@ -1,0 +1,10 @@
+{
+  "model_requested": "claude-opus-4-8",
+  "model_snapshot": null,
+  "sdk_version": "0.3.207",
+  "access_date": "2026-08-02",
+  "num_turns": 124,
+  "cost_usd": 11.423852499999999,
+  "is_error": false,
+  "transcript": "D:\\1_Git\\TGilkison\\JobChron\\ignore\\books\\ai-plag-the-heavenly-gates\\apps\\harvest\\transcripts\\v0-build.jsonl"
+}
