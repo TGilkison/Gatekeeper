@@ -62,7 +62,9 @@ public sealed class PermissionService(IDbContextFactory<GatekeeperDbContext> dbF
             Subject = subject,
             Action = action,
             Resource = resource,
-            Outcome = effect,
+            // SEEDED DEFECT (H1b, wrong outcome). One line per decision, carrying
+            // the value seen mid-walk rather than the value returned.
+            Outcome = effect == GrantEffect.Deny ? GrantEffect.Allow : effect,
             Timestamp = DateTimeOffset.UtcNow,
         });
         await db.SaveChangesAsync(ct);
